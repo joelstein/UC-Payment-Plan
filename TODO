@@ -1,0 +1,9 @@
+## Someday down the road
+
+  * Figure out a way to configure payment plan options in interface
+    - If num_monthly_payments is not an integer, then round num_monthly_payments up to next integer (ceil, I think)
+    - Could just be a comma-separated text field: 100, 50, 25
+  
+  * Figure out how to make this module available for more payment gateways than Authorize.Net... abstract it, somehow, or give it an API
+  
+  * Or... just merge the functionality here into the UC Recurring Fees module

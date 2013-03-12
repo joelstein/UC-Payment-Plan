@@ -1,0 +1,15 @@
+.payment-plan-table {
+  width: 100%;
+}
+.payment-plan-table thead th,
+.payment-plan-table tbody td {
+  text-align: center;
+  vertical-align: middle;
+}
+.payment-plan-table thead th.plan,
+.payment-plan-table tbody td.plan {
+  text-align: left;
+}
+.payment-plan-table tbody td.fees {
+  border-left: 1px dashed #ccc;
+}

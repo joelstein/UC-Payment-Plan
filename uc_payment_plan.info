@@ -1,0 +1,5 @@
+name = Payment Plan
+description = Allows users to pay for orders with a down payment and multiple installments.
+core = 6.x
+package = Ubercart - payment
+dependencies[] = uc_authorizenet
