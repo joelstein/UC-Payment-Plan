@@ -1,7 +1,13 @@
 <?php
 
+/*******************************************************************************
+ * Drupal Hooks
+ ******************************************************************************/
+
+/**
+ * Implements hook_menu().
+ */
 function uc_payment_plan_menu() {
-  $items = array();
   $items['authnet/test-silent-post'] = array(
     'page callback' => 'drupal_get_form',
     'page arguments' => array('uc_payment_plan_test_silent_post'),
@@ -9,61 +15,22 @@ function uc_payment_plan_menu() {
     'title' => 'Generate a test response from Authorize.Net',
     'type' => MENU_CALLBACK,
   );
+  $items['cart/payment-plan'] = array(
+    'title' => 'Update it',
+    'page callback' => 'uc_payment_plan_ajax_update',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
   return $items;
 }
 
-function uc_payment_plan_test_silent_post() {
-  $hash_value = '';
-  $data = array(
-    'x_trans_id' => 2147490176,
-    'x_amount' => number_format(100.00, 2),
-  );
-  $data['x_MD5_Hash'] = strtoupper(md5($hash_value.$data['x_trans_id'].$data['x_amount']));
-  
-  foreach ($data as $key => $value) {
-    $form[$key] = array('#type' => 'hidden', '#value' => $value);
-  }
-  $form['x_invoice_num'] = array(
-    '#type' => 'textfield',
-    '#title' => 'Order Number',
-    '#default_value' => 51,
-    '#size' => 10,
-  );
-  $form['x_subscription_id'] = array(
-    '#type' => 'textfield',
-    '#title' => 'Subscription ID',
-    '#default_value' => 542632,
-    '#size' => 10,
-  );
-  $form['x_subscription_paynum'] = array(
-    '#type' => 'textfield',
-    '#title' => 'Subscription Payment Number',
-    '#default_value' => 1,
-    '#size' => 10,
-  );
-  $form['x_response_code'] = array(
-    '#type' => 'textfield',
-    '#title' => 'Response Code',
-    '#default_value' => 1,
-    '#size' => 10,
-  );
-  
-  $form['#action'] = url('authnet/silent-post');
-  $form['submit'] = array('#type' => 'submit', '#value' => 'POST');
-  return $form;
-}
-
-/*******************************************************************************
- * Drupal Hooks
- ******************************************************************************/
-
 /**
- * Implementation of hook_theme().
+ * Implements hook_theme().
  */
 function uc_payment_plan_theme() {
   return array(
     'uc_payment_plan_checkout_form' => array(
-      'arguments' => array('element' => null),
+      'arguments' => array('element' => NULL),
     ),
   );
 }
@@ -90,7 +57,7 @@ function uc_payment_plan_payment_gateway() {
  * Implementation of hook_checkout_pane().
  */
 function uc_payment_plan_checkout_pane() {
-  // If payment plan is not available, don't setup a checkout pane
+  // If payment plan is not available, don't setup a checkout pane.
   if (!uc_payment_plan_available()) {
     return array();
   }
@@ -99,8 +66,8 @@ function uc_payment_plan_checkout_pane() {
     'callback' => 'uc_checkout_pane_payment_plan',
     'title' => t('Payment plan'),
     'weight' => 7,
-    'process' => true,
-    'collapsible' => true,
+    'process' => TRUE,
+    'collapsible' => TRUE,
   );
   return $panes;
 }
@@ -112,8 +79,8 @@ function uc_payment_plan_line_item() {
   $items[] = array(
     'id' => 'payment_plan_fee',
     'title' => t('Payment plan fee'),
-    'calculated' => true,
-    'stored' => true,
+    'calculated' => TRUE,
+    'stored' => TRUE,
     'callback' => 'uc_line_item_payment_plan_fee',
   );
   return $items;
@@ -123,44 +90,39 @@ function uc_payment_plan_line_item() {
  * Implementation of hook_order().
  */
 function uc_payment_plan_order($op, &$arg1, $arg2) {
-  switch ($op) {
-    
-    // An order just got saved
-    case 'save':
-      
-      // Generate processing fee line item
-      $line_items = uc_line_item_payment_plan_fee('load', $arg1);
-      
-      // If order has any line items
-      if (is_array($arg1->line_items)) {
-        // Loop through the existing order line items
-        foreach ($arg1->line_items as $key => $existing_line) {
-          // If we find a processing fee line item
-          if ($existing_line['type'] == 'payment_plan_fee') {
-            // Update it
-            if (!empty($line_items) and $existing_line['type'] == $line_items[0]['id']) {
-              uc_order_update_line_item($existing_line['line_item_id'], $line_items[0]['title'], $line_items[0]['amount']);
-              $arg1->line_items[$key][] = $line_items[0];
-              unset($line_items[0]);
-            }
-            // Delete it
-            else {
-              uc_order_delete_line_item($existing_line['line_item_id']);
-              unset($arg1->line_items[$key]);
-            }
-            break;
+  // An order just got saved.
+  if ($op == 'save') {
+    // Generate processing fee line item.
+    $line_items = uc_line_item_payment_plan_fee('load', $arg1);
+
+    // If order has any line items.
+    if (is_array($arg1->line_items)) {
+      // Loop through the existing order line items.
+      foreach ($arg1->line_items as $key => $existing_line) {
+        // If we find a processing fee line item.
+        if ($existing_line['type'] == 'payment_plan_fee') {
+          // Update it.
+          if (!empty($line_items) and $existing_line['type'] == $line_items[0]['id']) {
+            uc_order_update_line_item($existing_line['line_item_id'], $line_items[0]['title'], $line_items[0]['amount']);
+            $arg1->line_items[$key][] = $line_items[0];
+            unset($line_items[0]);
           }
+          // Delete it.
+          else {
+            uc_order_delete_line_item($existing_line['line_item_id']);
+            unset($arg1->line_items[$key]);
+          }
+          break;
         }
       }
-      
-      // Save processing fee line item (if it exists)
-      if (!empty($line_items[0])) {
-        uc_order_line_item_add($arg1->order_id, $line_items[0]['id'], $line_items[0]['title'], $line_items[0]['amount'], $line_items[0]['weight']);
-        $new_line['type'] = $line_items[0]['id'];
-        $arg1->line_items[] = $line_items[0];
-      }
-      break;
-      
+    }
+
+    // Save processing fee line item (if it exists).
+    if (!empty($line_items[0])) {
+      uc_order_line_item_add($arg1->order_id, $line_items[0]['id'], $line_items[0]['title'], $line_items[0]['amount'], $line_items[0]['weight']);
+      $new_line['type'] = $line_items[0]['id'];
+      $arg1->line_items[] = $line_items[0];
+    }
   }
 }
 
@@ -168,25 +130,23 @@ function uc_payment_plan_order($op, &$arg1, $arg2) {
  * Implementation of hook_uc_arb_payment().
  */
 function uc_payment_plan_uc_arb_payment($response) {
-  
   // Lookup order
   $order = uc_order_load($response['x_invoice_num']);
-  
+
   // If payment was successful, add entry to payment log
   if ($response['x_response_code'] == 1) {
     $comment = t('Authorize.Net ARB payment #!payment_num', array('!payment_num' => $response['x_subscription_paynum']));
     uc_payment_enter($order->order_id, $order->payment_method, $response['x_amount'], 0, $response, $comment);
   }
-  
+
   // Add comment to order log
   $args = array(
     '!comment' => $comment,
     '!amount' => uc_price($response['x_amount'], array()),
     '!accepted' => $response['x_response_code'] == 1 ? 'accepted' : 'not accepted',
-    '@post' => print_r($response, true),
+    '@post' => print_r($response, TRUE),
   );
   uc_order_comment_save($order->order_id, 0, t('<strong>Payment Plan:</strong> !comment of !amount !accepted.<pre>@post</pre>', $args), 'admin');
-  
 }
 
 /*******************************************************************************
@@ -253,11 +213,19 @@ function uc_payment_plan_settings_form() {
  */
 function uc_checkout_pane_payment_plan($op, &$arg1, $arg2) {
   switch ($op) {
-    
+
     // Checkout page (pane)
     case 'view':
-    
-      // Instructions
+      // Add JS and CSS.
+      drupal_add_js(drupal_get_path('module', 'uc_payment_plan') . '/js/uc_payment_plan_form.js');
+      drupal_add_js(array('ucPaymentPlan' => array(
+        'callback' => url('cart/payment-plan'),
+        'data' => uc_payment_plan_option_data($arg1->order_total),
+      )), 'setting');
+      drupal_add_css(drupal_get_path('module', 'uc_payment_plan') . '/js/uc_payment_plan_form.css');
+
+      // Instructions.
+      $description = '';
       $instructions = variable_get('uc_payment_plan_instructions', 'You may make full payment now or spread your cost over several installments. However, there is an additional processing fee of !fee added per installment. Your credit card will be charged today and automatically every !length !unit until all payments are completed. (The amounts below do not yet include taxes and shipping.)');
       if (!empty($instructions)) {
         $context = array('location' => 'checkout-view-payment-plan-instructions');
@@ -268,38 +236,40 @@ function uc_checkout_pane_payment_plan($op, &$arg1, $arg2) {
           '!cart_total' => $arg1->order_total,
         );
         $description = '<div id="payment-plan-instructions">'.t($instructions, $replacements).'</div>';
-      } else {
-        $description = '';
       }
-      
-      // Payment plan options
+
+      // Payment plan options. Table is rendered in them function, but data is
+      // injected via Javascript.
       $contents['payment_plan_option'] = array(
         '#type' => 'radios',
-        '#options' => uc_payment_plan_options(),
+        '#options' => array(
+          100 => t('Full Payment'),
+          50 => t('50% Down Payment'),
+          25 => t('25% Down Payment'),
+        ),
         '#default_value' => !empty($arg1->data['payment_plan_option']) ? $arg1->data['payment_plan_option'] : 100,
-        '#required' => true,
+        '#required' => TRUE,
         '#theme' => 'uc_payment_plan_checkout_form',
+        '#order' => $arg1,
       );
-      
+
       return array('description' => $description, 'contents' => $contents);
-    
+
     // After checkout form is submitted
     case 'process':
-      
-      // Credit card must be chosen, and something other than full payment
+      // Credit card must be chosen, and something other than full payment.
       if ($_POST['panes']['payment']['payment_method'] == 'credit' and $arg2['payment_plan_option'] != 100) {
-        // Store payment plan option in order data
+        // Store payment plan option in order data.
         $arg1->data['payment_plan_option'] = $arg2['payment_plan_option'];
       }
-      
-      return true;
-    
-    // Show payment plan details on checkout review page (if plan exists)
+      return TRUE;
+
+    // Show payment plan details on checkout review page (if plan exists).
     case 'review':
       if (!isset($arg1->data['payment_plan_option'])) {
         return;
       }
-      $details = uc_payment_plan_calculate_option($arg1->data['payment_plan_option'], $arg1->order_total, false);
+      $details = uc_payment_plan_calculate_option($arg1->data['payment_plan_option'], $arg1->order_total, FALSE);
       $length = variable_get('uc_payment_plan_length', 1);
       $unit = variable_get('uc_payment_plan_unit', 'months');
       $context = array('location' => 'checkout-review-line-item');
@@ -308,6 +278,7 @@ function uc_checkout_pane_payment_plan($op, &$arg1, $arg2) {
         array('title' => 'Installments', 'data' => $details['num_installments'].' x '.uc_price($details['installment'], $context)),
         array('title' => 'Interval', 'data' => $length.' '.($length > 1 ? $unit : substr($unit, 0, -1))),
       );
+
   }
 }
 
@@ -315,23 +286,31 @@ function uc_checkout_pane_payment_plan($op, &$arg1, $arg2) {
  * Callback for payment plan fee line item.
  */
 function uc_line_item_payment_plan_fee($op, $arg1) {
-  switch ($op) {
-    case 'load':
-      $lines = array();
-      if (isset($arg1->data['payment_plan_option'])) {
-        $details = uc_payment_plan_calculate_option($arg1->data['payment_plan_option'], $arg1->order_total);
-        if ($details['total_fees'] > 0) {
-          $lines[] = array(
-            'id' => 'payment_plan_fee',
-            'title' => t('Payment plan fee'),
-            'amount' => $details['total_fees'],
-            'weight' => 6,
-          );
-        }
+  if ($op == 'load') {
+    $lines = array();
+    if (isset($arg1->data['payment_plan_option'])) {
+      $details = uc_payment_plan_calculate_option($arg1->data['payment_plan_option'], $arg1->order_total);
+      if ($details['total_fees'] > 0) {
+        $lines[] = array(
+          'id' => 'payment_plan_fee',
+          'title' => t('Payment plan fee'),
+          'amount' => $details['total_fees'],
+          'weight' => 6,
+        );
       }
-      return $lines;
-    break;
+    }
+    return $lines;
   }
+}
+
+/**
+ * Updates payment plan table via ajax.
+ */
+function uc_payment_plan_ajax_update() {
+  $order = unserialize($_POST['order']);
+  $order_total = uc_order_get_total($order);
+  echo json_encode(uc_payment_plan_option_data($order_total));
+  exit;
 }
 
 /**
@@ -340,14 +319,14 @@ function uc_line_item_payment_plan_fee($op, $arg1) {
 function uc_payment_plan_charge($order_id, $amount, $data) {
   global $user;
   $order = uc_order_load($order_id);
-  
+
   // If this is a 100% payment, don't create a subscription,
-  // but just hand off to the Authorize.Net module
+  // but just hand off to the Authorize.Net module.
   if (empty($order->data['payment_plan_option'])) {
     return uc_authorizenet_charge($order_id, $amount, $data);
   }
-  
-  // Get payment plan details (without fees re-calculated)
+
+  // Get payment plan details (without fees re-calculated).
   $details = uc_payment_plan_calculate_option($order->data['payment_plan_option'], $amount, false);
   $settings = array(
     'amount' => $details['installment'],
@@ -358,28 +337,70 @@ function uc_payment_plan_charge($order_id, $amount, $data) {
     'unit' => variable_get('uc_payment_plan_unit', 'months'),
     'start_date' => date('Y-m-d'),
   );
-  
-  // Create ARB subscription
+
+  // Create ARB subscription.
   $response = uc_authorizenet_arb_create($order, $settings);
-  
-  // If response failed
+
+  // If response failed.
   if (!$response['pass']) {
     uc_order_comment_save($order_id, $user->uid, t('<strong>Payment Plan:</strong> Could not setup the Authorize.Net ARB subscription for some reason.'), 'admin');
     return array(
-      'success' => false,
+      'success' => FALSE,
       'message' => t('Your order could not be completed because there was a problem setting up your payment plan. Please contact the site administrator. We are sorry for the inconvenience.'),
     );
   }
-  // Otherwise, subscription was setup successfully;
-  // we don't log payment, though, since we will wait for
-  // Authorize.Net to do that for us.
+  // Otherwise, subscription was setup successfully; we don't log payment,
+  // though, since we will wait for Authorize.Net to do that for us.
   else {
     return array(
-      'success' => true,
-      'log_payment' => false,
+      'success' => TRUE,
+      'log_payment' => FALSE,
     );
   }
-  
+}
+
+/**
+ * Tests silent post.
+ */
+function uc_payment_plan_test_silent_post() {
+  $hash_value = '';
+  $data = array(
+    'x_trans_id' => 2147490176,
+    'x_amount' => number_format(100.00, 2),
+  );
+  $data['x_MD5_Hash'] = strtoupper(md5($hash_value.$data['x_trans_id'].$data['x_amount']));
+
+  foreach ($data as $key => $value) {
+    $form[$key] = array('#type' => 'hidden', '#value' => $value);
+  }
+  $form['x_invoice_num'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Order Number',
+    '#default_value' => 51,
+    '#size' => 10,
+  );
+  $form['x_subscription_id'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Subscription ID',
+    '#default_value' => 542632,
+    '#size' => 10,
+  );
+  $form['x_subscription_paynum'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Subscription Payment Number',
+    '#default_value' => 1,
+    '#size' => 10,
+  );
+  $form['x_response_code'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Response Code',
+    '#default_value' => 1,
+    '#size' => 10,
+  );
+
+  $form['#action'] = url('authnet/silent-post');
+  $form['submit'] = array('#type' => 'submit', '#value' => 'POST');
+  return $form;
 }
 
 /*******************************************************************************
@@ -390,56 +411,39 @@ function uc_payment_plan_charge($order_id, $amount, $data) {
  * Themes the payment plan radio buttons.
  */
 function theme_uc_payment_plan_checkout_form($element) {
-  drupal_add_js(drupal_get_path('module', 'uc_payment_plan').'/js/uc_payment_plan_form.js');
-  drupal_add_css(drupal_get_path('module', 'uc_payment_plan').'/js/uc_payment_plan_form.css');
-  
-  $fees = variable_get('uc_payment_plan_fee', 0) ? true : false;
-  $output = '';
-  
-  // Get total of cart
-  $cart_total = 0;
-  foreach (uc_cart_get_contents() as $item) {
-    $cart_total += $item->price * $item->qty;
-  }
-  
-  // Table header
+  $fees = variable_get('uc_payment_plan_fee', 0);
+
+  // Table header.
   $header = array(
     array('data' => t('Payment Plan'), 'class' => 'plan'),
     t('Down Payment'),
-    '&nbsp;',
+    '',
     t('Installments'),
-    '&nbsp;',
+    '',
     t('Total Cost'),
   );
   if ($fees) {
     $header[] = array('data' => t('Fees'), 'class' => 'fees');
   }
-  
-  // Table rows
+
+  // Table rows.
   $context = array('location' => 'checkout-view-payment-plan-table');
   foreach (element_children($element) as $key) {
-    $option = $element[$key];
-    $details = uc_payment_plan_calculate_option($key, $cart_total);
-    $installments = uc_price(array('price' => $details['installment'], 'qty' => 1), $context);
-    if ($details['installment'] > 0) {
-      $installments = $details['num_installments'].' x '.$installments;
-    }
     $row = array(
-      array('data' => theme('radio', $option), 'class' => 'plan'),
-      uc_price(array('price' => $details['down_payment'], 'qty' => 1), $context),
+      array('data' => theme('radio', $element[$key]), 'class' => 'plan'),
+      array('data' => '', 'class' => 'down-payment'),
       '+',
-      $installments,
+      array('data' => '', 'class' => 'installments'),
       '=',
-      uc_price(array('price' => $details['payment_plan_total'], 'qty' => 1), $context),
+      array('data' => '', 'class' => 'payment-plan-total'),
     );
     if ($fees) {
-      $row[] = array('data' => uc_price(array('price' => $details['total_fees'], 'qty' => 1), $context), 'class' => 'fees');
+      $row[] = array('data' => '', 'class' => 'fees');
     }
-    $rows[] = $row;
+    $rows[] = array('data' => $row, 'class' => "option{$element[$key]['#return_value']}");
   }
-  
-  $output .= theme('table', $header, $rows, array('class' => 'cart-review payment-plan-table'));
-  return $output;
+
+  return theme('table', $header, $rows, array('id' => 'payment-plan-table', 'class' => 'cart-review'));
 }
 
 /*******************************************************************************
@@ -450,48 +454,48 @@ function theme_uc_payment_plan_checkout_form($element) {
  * Checks several conditions do determine availability of payment plan.
  */
 function uc_payment_plan_available() {
-  // Payment plan must be enabled in payment gateway settings
-  if (!variable_get('uc_pg_payment_plan_enabled', false)) {
-    return false;
+  // Payment plan must be enabled in payment gateway settings.
+  if (!variable_get('uc_pg_payment_plan_enabled', FALSE)) {
+    return FALSE;
   }
-  // Credit payment method must be available
-  else if (!variable_get('uc_payment_method_credit_checkout', false)) {
-    return false;
+  // Credit payment method must be available.
+  else if (!variable_get('uc_payment_method_credit_checkout', FALSE)) {
+    return FALSE;
   }
-  // Credit payment method's gateway must be payment plan
+  // Credit payment method's gateway must be payment plan.
   else if (variable_get('uc_payment_credit_gateway', 'none') != 'payment_plan') {
-    return false;
+    return FALSE;
   }
-  // Authorize.Net must be enabled
-  else if (!variable_get('uc_pg_authorizenet_enabled', false)) {
-    return false;
+  // Authorize.Net must be enabled.
+  else if (!variable_get('uc_pg_authorizenet_enabled', FALSE)) {
+    return FALSE;
   }
-  // ARB must not be disabled
+  // ARB must not be disabled.
   else if (variable_get('uc_authnet_arb_mode', 'disabled') == 'disabled') {
-    return false;
+    return FALSE;
   }
-  // One of the required products must be in cart
+  // One of the required products must be in cart.
   $required = variable_get('uc_payment_plan_products', array());
   if (!empty($required)) {
-    $in_cart = false;
+    $in_cart = FALSE;
     foreach (uc_cart_get_contents() as $product) {
       if (in_array($product->nid, $required)) {
-        $in_cart = true;
+        $in_cart = TRUE;
         break;
       }
     }
     if (!$in_cart) {
-      return false;
+      return FALSE;
     }
   }
   // All checks pass!
-  return true;
+  return TRUE;
 }
 
 /**
  * Defines the payment plan options.
  */
-function uc_payment_plan_options($key = null) {
+function uc_payment_plan_options($key = NULL) {
   $options = array(
     100 => t('Full Payment'),
     50 => t('50% Down Payment'),
@@ -501,13 +505,36 @@ function uc_payment_plan_options($key = null) {
 }
 
 /**
+ * Returns array of rendered payment plan data for given total.
+ */
+function uc_payment_plan_option_data($order_total) {
+  $data = array();
+  $fees = variable_get('uc_payment_plan_fee', 0);
+  $context = array('location' => 'checkout-view-payment-plan-table');
+  foreach (array(100, 50, 25) as $option) {
+    $details = uc_payment_plan_calculate_option($option, $order_total, $fees);
+    $data[$option]['down_payment'] = uc_price(array('price' => $details['down_payment'], 'qty' => 1), $context);
+    $data[$option]['installments'] = uc_price(array('price' => $details['installment'], 'qty' => 1), $context);
+    if ($details['installment'] > 0) {
+      $data[$option]['installments'] = "{$details['num_installments']} x {$data[$option]['installments']}";
+    }
+    $data[$option]['payment_plan_total'] = uc_price(array('price' => $details['payment_plan_total'], 'qty' => 1), $context);
+    if ($fees) {
+      $data[$option]['fees'] = uc_price(array('price' => $details['total_fees'], 'qty' => 1), $context);
+    }
+  }
+  return $data;
+}
+
+/**
  * Calculates payment plan details.
  */
-function uc_payment_plan_calculate_option($option, $original_total, $fees = true) {
+function uc_payment_plan_calculate_option($option, $original_total, $fees = TRUE) {
   if ($option == 100) {
     $num_payments = $num_installments = $installment = $total_fees = 0;
     $payment_plan_total = $down_payment = $original_total;
-  } else {
+  }
+  else {
     $num_payments = 100 / $option;
     $fee = $fees ? variable_get('uc_payment_plan_fee', 0) : 0;
     $total_fees = $fee * $num_payments;
