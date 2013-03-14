@@ -320,30 +320,112 @@ function uc_payment_plan_charge($order_id, $amount, $data) {
   global $user;
   $order = uc_order_load($order_id);
 
-  // If this is a 100% payment, don't create a subscription,
-  // but just hand off to the Authorize.Net module.
+  // If this is a 100% payment, don't create a subscription, but just hand it
+  // off to the Authorize.Net module for a single charge.
   if (empty($order->data['payment_plan_option'])) {
     return uc_authorizenet_charge($order_id, $amount, $data);
   }
 
+  // Otherwise, we'll use Authorize.Net's ARB to create a subscription with an
+  // initial "trial" payment. Previous versions of this module used the handy
+  // uc_authorizenet_arb_create() function; however, in recent versions, it's
+  // become closely tied to uc_recurring. So, we lift some of the code from
+  // that function.
+
   // Get payment plan details (without fees re-calculated).
-  $details = uc_payment_plan_calculate_option($order->data['payment_plan_option'], $amount, false);
-  $settings = array(
-    'amount' => $details['installment'],
-    'trial_amount' => $details['down_payment'],
-    'total_occurrences' => $details['num_payments'],
-    'trial_occurrences' => 1,
-    'length' => variable_get('uc_payment_plan_length', 1),
-    'unit' => variable_get('uc_payment_plan_unit', 'months'),
-    'start_date' => date('Y-m-d'),
+  $details = uc_payment_plan_calculate_option($order->data['payment_plan_option'], $amount, FALSE);
+
+  // Get the country data for the billing information.
+  $billing_country = uc_get_country_data(array('country_id' => $order->billing_country));
+
+  // Build the data array for the request.
+  $data = array(
+    'refId' => substr($order->order_id . '-' . time(), 0, 20),
+    'subscription' => array(
+      'name' => substr(t('Order @order_id', array('@order_id' => $order->order_id)), 0, 50),
+      'paymentSchedule' => array(
+        'interval' => array(
+          'length' => variable_get('uc_payment_plan_length', 1),
+          'unit' => variable_get('uc_payment_plan_unit', 'months'),
+        ),
+        'startDate' => date('Y-m-d'),
+        'totalOccurrences' => $details['num_payments'],
+        'trialOccurrences' => 1,
+      ),
+      'amount' => $details['installment'],
+      'trialAmount' => $details['down_payment'],
+      'payment' => array(), // Data inserted below based on payment method.
+      'order' => array(
+        'invoiceNumber' => substr($order->order_id, 0, 20),
+        'description' => substr(t('Order @order_id', array('@order_id' => $order->order_id)), 0, 255),
+      ),
+      'customer' => array(
+        'id' => substr($order->uid, 0, 20),
+        'email' => substr($order->primary_email, 0, 255),
+        'phoneNumber' => substr($order->billing_phone, 0, 25),
+      ),
+      'billTo' => array(
+        'firstName' => substr($order->billing_first_name, 0, 50),
+        'lastName' => substr($order->billing_last_name, 0, 50),
+        'company' => substr($order->billing_company, 0, 50),
+        'address' => substr($order->billing_street1, 0, 60),
+        'city' => substr($order->billing_city, 0, 40),
+        'state' => substr(uc_get_zone_code($order->billing_zone), 0, 2),
+        'zip' => substr($order->billing_postal_code, 0, 20),
+        'country' => !$billing_country ? '' : $billing_country[0]['country_iso_code_2'],
+      ),
+    ),
   );
 
-  // Create ARB subscription.
-  $response = uc_authorizenet_arb_create($order, $settings);
+  // Add shipping information if it's available.
+  if (!empty($order->delivery_first_name)) {
+    $delivery_country = uc_get_country_data(array('country_id' => $order->delivery_country));
+    $data['subscription']['shipTo'] = array(
+      'firstName' => substr($order->delivery_first_name, 0, 50),
+      'lastName' => substr($order->delivery_last_name, 0, 50),
+      'company' => substr($order->delivery_company, 0, 50),
+      'address' => substr($order->delivery_street1, 0, 60),
+      'city' => substr($order->delivery_city, 0, 40),
+      'state' => substr(uc_get_zone_code($order->delivery_zone), 0, 2),
+      'zip' => substr($order->delivery_postal_code, 0, 20),
+      'country' => !$delivery_country ? '' : $delivery_country[0]['country_iso_code_2'],
+    );
+  }
 
-  // If response failed.
-  if (!$response['pass']) {
+  // Add the payment information to the data array based on the payment method.
+  if ($order->payment_method == 'credit') {
+    if ($order->payment_details['cc_exp_month'] < 10) {
+      $order->payment_details['cc_exp_month'] = '0' . $order->payment_details['cc_exp_month'];
+    }
+    $data['subscription']['payment'] = array(
+      'creditCard' => array(
+        'cardNumber' => $order->payment_details['cc_number'],
+        'expirationDate' => $order->payment_details['cc_exp_year'] . '-' . $order->payment_details['cc_exp_month'],
+      ),
+    );
+  }
+
+  // Build the XML string.
+  $xml = _uc_authorizenet_xml_api_wrapper('ARBCreateSubscriptionRequest', _uc_authorizenet_array_to_xml($data));
+
+  // Send the request off to the server and get the response.
+  $response = uc_authorizenet_xml_api(variable_get('uc_authnet_arb_mode', 'disabled'), $xml);
+
+  // Fail if the response is empty or FALSE.
+  if (!$response) {
     uc_order_comment_save($order_id, $user->uid, t('<strong>Payment Plan:</strong> Could not setup the Authorize.Net ARB subscription for some reason.'), 'admin');
+    return array(
+      'success' => FALSE,
+      'message' => t('Your order could not be completed because there was a problem setting up your payment plan. Please contact the site administrator. We are sorry for the inconvenience.'),
+    );
+  }
+
+  // Parse the response into a data array.
+  $data = _uc_authorizenet_arb_parse_response($response);
+
+  // Response failed.
+  if ($data['resultCode'] == 'Error') {
+    uc_order_comment_save($order_id, $user->uid, t('<strong>Payment Plan:</strong> Could not setup the Authorize.Net ARB subscription.<br>@error - @text', array('@error' => $data['code'], '@text' => $data['text'])), 'admin');
     return array(
       'success' => FALSE,
       'message' => t('Your order could not be completed because there was a problem setting up your payment plan. Please contact the site administrator. We are sorry for the inconvenience.'),
@@ -352,6 +434,7 @@ function uc_payment_plan_charge($order_id, $amount, $data) {
   // Otherwise, subscription was setup successfully; we don't log payment,
   // though, since we will wait for Authorize.Net to do that for us.
   else {
+    uc_order_comment_save($order_id, $user->uid, t('<strong>Payment Plan:</strong> Subscription ID @subscription_id setup.', array('@subscription_id' => $data['subscriptionId'])), 'admin');
     return array(
       'success' => TRUE,
       'log_payment' => FALSE,
